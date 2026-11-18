@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from urllib.parse import urlparse
-from participant_queue import FORM_URL,process_participant,make_queue,read_state,watch_manual_submission
+from participant_queue import FORM_URL,process_participant,make_queue,read_state,watch_manual_submission,AutoNextNavigator
 from survey_automation import ROOT,questions_from_schema,draft_ratings
 from test_participant_queue import example_person
 
@@ -63,6 +63,53 @@ class OfflineQueueBrowserTests(unittest.TestCase):
             checks['count']+=1
             return checks['count']>3
         self.assertFalse(watch_manual_submission(self.page,status_getter=lambda:500,stopped=stopped))
+
+    def test_auto_next_reaches_final_page_and_never_clicks_submit(self):
+        fixture='''<html><body><script>
+        window.nextClicks=0;window.submitClicks=0;
+        window.showStage=n=>{
+          window.stage=n;
+          document.body.innerHTML='<form action="formResponse"><h1 role="heading">Section '+(n+1)+'</h1>'+
+            (n<5?'<div role="button" tabindex="0" onclick="window.nextClicks++;showStage(window.stage+1)">Next</div>':
+             '<button type="button" onclick="window.submitClicks++">Submit</button>')+
+            (n>0?'<button type="button" onclick="showStage(window.stage-1)">Back</button>':'')+'</form>';
+        };showStage(0);
+        </script></body></html>'''
+        self.context.route('**/*',lambda route:route.fulfill(content_type='text/html',body=fixture))
+        self.page.goto(FORM_URL);navigator=AutoNextNavigator()
+        for _ in range(30):navigator.step(self.page,200)
+        self.assertTrue(navigator.at_submit)
+        self.assertEqual(self.page.evaluate('window.nextClicks'),5)
+        self.assertEqual(self.page.evaluate('window.submitClicks'),0)
+        self.page.get_by_role('button',name='Back',exact=True).click()
+        for _ in range(8):navigator.step(self.page,200)
+        self.assertEqual(self.page.evaluate('window.stage'),4)
+        self.assertEqual(self.page.evaluate('window.nextClicks'),5)
+
+    def test_validation_pause_retries_only_after_answers_change(self):
+        fixture='''<html><body><form action="formResponse"><h1 role="heading">Age</h1>
+        <input id="age" value=""><p role="alert" id="error"></p>
+        <div role="button" tabindex="0" onclick="window.nextStep()">Next</div>
+        </form><script>window.clicks=0;window.nextStep=()=>{
+          window.clicks++;
+          if(!document.getElementById('age').value){document.getElementById('error').textContent='Required';}
+          else{document.body.innerHTML='<form action="formResponse"><button type="button">Submit</button></form>';}
+        };</script></body></html>'''
+        self.context.route('**/*',lambda route:route.fulfill(content_type='text/html',body=fixture))
+        self.page.goto(FORM_URL);navigator=AutoNextNavigator()
+        for _ in range(12):navigator.step(self.page,200)
+        self.assertEqual(self.page.evaluate('window.clicks'),1)
+        self.page.locator('#age').fill('30')
+        for _ in range(8):navigator.step(self.page,200)
+        self.assertEqual(self.page.evaluate('window.clicks'),2)
+        self.assertTrue(navigator.at_submit)
+
+    def test_visible_submit_takes_priority_over_next(self):
+        fixture='<form action="formResponse"><button type="button" onclick="window.clicked=true">Next</button><button type="button" onclick="window.clicked=true">Submit</button></form>'
+        self.context.route('**/*',lambda route:route.fulfill(content_type='text/html',body=fixture))
+        self.page.goto(FORM_URL);navigator=AutoNextNavigator()
+        for _ in range(8):navigator.step(self.page,200)
+        self.assertTrue(navigator.at_submit);self.assertIsNone(self.page.evaluate('window.clicked'))
 
 
 if __name__=='__main__':unittest.main()

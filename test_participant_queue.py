@@ -67,6 +67,12 @@ class ParticipantQueueTests(unittest.TestCase):
             self.assertFalse(process_participant(page,example_person(),self.questions,self.state,path))
             self.assertEqual(self.state['completed'],{});self.assertFalse(path.exists())
 
+    def test_manual_next_option_disables_auto_page_navigation(self):
+        page=MagicMock();page.goto.return_value.status=200
+        with tempfile.TemporaryDirectory() as directory,patch('participant_queue.watch_manual_submission',return_value=False) as watcher:
+            process_participant(page,example_person(),self.questions,self.state,Path(directory)/'state.json',manual_next=True)
+            self.assertFalse(watcher.call_args.kwargs['auto_next'])
+
     def test_success_saves_once_and_resume_skips_person(self):
         page=MagicMock();page.goto.return_value.status=200
         with tempfile.TemporaryDirectory() as directory,patch('participant_queue.watch_manual_submission',return_value=True):

@@ -30,10 +30,16 @@ Deployment reference: [Render's Flask guide](https://render.com/docs/deploy-flas
 
 Double-click **Start Survey.cmd**. It installs the desktop Playwright dependency
 on its first run, then opens Chrome (or Edge) with the first ready, pending
-participant. Review the person's answers, go through Google's pages and click
-**Submit yourself**. After Google's confirmation message appears, the queue saves
-progress and opens the next participant automatically. It never clicks Submit,
-Next, or creates a form POST itself. Suggested ratings still require review.
+participant. It clicks **Next** through the prefilled pages and stops at the
+final **Submit** button. Review the answers and click **Submit yourself**.
+After Google's confirmation message appears, the queue saves progress and opens
+the next participant automatically. It never clicks Submit. Once the final page
+is reached, Back remains available for reviewing earlier pages without being
+automatically moved forward again. Suggested ratings still require review.
+
+If Next cannot advance because of a validation error, the helper does not keep
+clicking an unchanged page. Correct the missing/invalid answers; it can then
+continue. Use `--manual-next` to turn automatic page navigation off entirely.
 
 Only participants with all required supplied details are queued; missing ages,
 poultry types or other fields are not invented. Each participant uses a fresh
@@ -49,6 +55,7 @@ cause another submission. Use an explicit reset only if a repeat is intended.
 ```powershell
 & '.\Start Survey.cmd' --plan-only
 & '.\Start Survey.cmd' --limit 5
+& '.\Start Survey.cmd' --manual-next
 & '.\Start Survey.cmd' --reset-progress
 ```
 
