@@ -1,0 +1,7 @@
+__pycache__/
+my_answers.json
+draft_answers.json
+survey_preview.html
+test_preview.html
+participants.csv
+participants.*.csv

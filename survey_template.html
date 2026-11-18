@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Survey draft — SmartPoultry</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#172b40;font:16px/1.5 system-ui,sans-serif}main{max-width:1050px;margin:32px auto;padding:0 18px 60px}h1{font-size:27px;line-height:1.2}h2{font-size:21px;margin-top:0}.card{background:#fff;border:1px solid #dbe3ec;border-radius:12px;padding:24px;margin:18px 0}.muted{color:#52667d}.toolbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center}button{border:0;border-radius:7px;padding:11px 18px;background:#155dc0;color:white;font:inherit;cursor:pointer}button.secondary{background:#e7eef8;color:#164d92}input,select,textarea{font:inherit;padding:9px 11px;border:1px solid #b9c8da;border-radius:6px;max-width:100%;background:white;color:#172b40}.question{padding:17px 0;border-bottom:1px solid #e7edf3}.question:last-child{border-bottom:0}.question>label,.question>p{display:block;font-weight:600;margin:0 0 9px}.question input[type=text],.question textarea{width:100%}.question select{min-width:200px}.check{display:inline-flex;align-items:center;gap:8px;margin:4px 20px 4px 0}.summary{padding:10px 14px;border-radius:6px;background:#edf4ff;font-weight:600}.footer{position:sticky;bottom:0;padding:14px;background:#ffffffed;border-top:1px solid #dbe3ec;backdrop-filter:blur(6px)}.footer>div{max-width:1014px;margin:auto;display:flex;gap:12px;flex-wrap:wrap;align-items:center}.note{font-size:14px;color:#52667d}.required{font-weight:400;color:#687d93;font-size:13px}.message{color:#176736;font-weight:600}@media(max-width:600px){main{margin-top:18px}.card{padding:17px}.toolbar button{width:100%}.footer button{width:100%}h1{font-size:23px}.question select{width:100%}}
+</style></head><body><main>
+<header><p class="muted">SMARTPOULTRY · SINGLE RESPONSE DRAFT</p><h1>__TITLE__</h1><p>Review the proposed selections below. Personal and farm details start blank; enter your own information.</p></header>
+<section class="card"><h2>Choose a participant</h2><label for="participantSelect">Participant name</label><p><select id="participantSelect"><option value="">Choose a participant or enter details manually...</option></select></p><p id="participantDetails" class="note" aria-live="polite">Selecting a name fills only the details supplied in participants.csv. Age and other missing information stay blank.</p><p class="note">Google groups 2–5 farms into one choice. Its largest chicken-count choice is “201 or more.” The exact details you supplied are shown here for review.</p></section>
+<section class="card"><h2>Suggested rating mix</h2><p>About 55% Strongly Agree, 35% Agree, and 10% Neutral. Every selection is editable.</p><p id="ratingSummary" class="summary" aria-live="polite"></p><div class="toolbar"><button type="button" class="secondary" id="clearRatings">Clear rating selections</button><button type="button" class="secondary" id="restoreRatings">Restore suggested ratings</button></div></section>
+<div id="questions"></div><p class="note">This helper opens Google's prefilled form. Review its six pages and submit it yourself when the answers reflect your experience. This page does not send responses to Google.</p><p id="message" class="message" role="status"></p>
+</main><div class="footer"><div><button type="button" id="openForm">Open filled Google Form for review</button><span class="note">Nothing is submitted automatically.</span></div></div>
+<script>
+'use strict';
+const survey=__DATA__;
+const controls=new Map();
+function add(tag,parent,text,className){const element=document.createElement(tag);if(text!==undefined)element.textContent=text;if(className)element.className=className;parent.append(element);return element;}
+let lastSection=null,section=null;
+for(const question of survey.questions){
+    if(question.section!==lastSection){lastSection=question.section;section=add('section',document.getElementById('questions'),undefined,'card');add('h2',section,lastSection);}
+    const row=add('div',section,undefined,'question');row.dataset.entry=question.entry;
+    const label=add(question.kind==='checkbox'?'p':'label',row,question.question);
+    if(question.required)add('span',label,' (required in Google Form)','required');
+    if(question.kind==='checkbox'){
+        const boxes=[];
+        for(const option of question.options){const wrapper=add('label',row,undefined,'check');const input=add('input',wrapper);input.type='checkbox';input.value=option;input.checked=question.draft.includes(option);add('span',wrapper,option);boxes.push(input);}
+        controls.set(question.entry,boxes);
+    }else{
+        const input=add(question.options.length?'select':'input',row);input.id='entry-'+question.entry;label.htmlFor=input.id;
+        if(question.options.length){input.add(new Option('Choose an answer...',''));question.options.forEach(option=>input.add(new Option(option,option)));}
+        else{input.type='text';input.autocomplete='off';if(question.question==='AGE')input.inputMode='numeric';}
+        input.value=question.draft;input.addEventListener('change',updateSummary);controls.set(question.entry,input);
+    }
+}
+function updateSummary(){
+    const counts={};let filled=0,total=0;
+    for(const question of survey.questions.filter(q=>q.kind==='rating')){total++;const answer=controls.get(question.entry).value;if(answer){filled++;counts[answer]=(counts[answer]||0)+1;}}
+    document.getElementById('ratingSummary').textContent=filled+'/'+total+' rating statements selected · '+Object.entries(counts).map(([name,count])=>name+': '+count).join(' · ');
+}
+const participantSelect=document.getElementById('participantSelect');
+(survey.participants || []).forEach((person,index)=>participantSelect.add(new Option(person.name,String(index))));
+function normalizedQuestion(text){return text.replace(/\s+/g,' ').trim().toLowerCase();}
+participantSelect.addEventListener('change',()=>{
+    const person=participantSelect.value===''?null:survey.participants[Number(participantSelect.value)];
+    // Never carry another person's age, farm details or edited ratings forward.
+    for(const question of survey.questions){
+        const control=controls.get(question.entry);
+        const matched=person?Object.entries(person.answers).find(([label])=>normalizedQuestion(label)===normalizedQuestion(question.question)):null;
+        if(Array.isArray(control)){control.forEach(box=>box.checked=Boolean(matched && Array.isArray(matched[1]) && matched[1].includes(box.value)));continue;}
+        control.value=question.kind==='rating'?question.draft:'';
+        if(!person || question.kind==='rating')continue;
+        if(matched && matched[1] && (!question.options.length || question.options.includes(matched[1])))control.value=matched[1];
+    }
+    document.getElementById('participantDetails').textContent=person?
+        person.name+' · '+(person.line_of_work || 'Role not provided')+' · '+(person.chicken_count?person.chicken_count+' chickens':'Chicken count not provided')+' · '+(person.farm_count?person.farm_count+' farms':'Farm count not provided')+' · '+(person.recordkeeping_experience || 'Experience not provided')+' · '+(person.recordkeeping_methods?.join(' + ') || 'Methods not provided')+' · '+(person.review_frequency?person.review_frequency+' review':'Review frequency not provided')+'. Age and remaining details need their answers. Ratings below are suggested drafts, not recorded participant responses.':
+        'Selecting a name fills only the details supplied in participants.csv. Age and other missing information stay blank.';
+    updateSummary();
+});
+function prefilledUrl(){
+    const url=new URL(survey.url);url.searchParams.set('usp','pp_url');
+    for(const [entry,control] of controls){if(Array.isArray(control)){control.filter(box=>box.checked).forEach(box=>url.searchParams.append('entry.'+entry,box.value));}else if(control.value.trim()){url.searchParams.set('entry.'+entry,control.value.trim());}}
+    return url.href;
+}
+document.getElementById('clearRatings').onclick=()=>{survey.questions.filter(q=>q.kind==='rating').forEach(q=>controls.get(q.entry).value='');updateSummary();};
+document.getElementById('restoreRatings').onclick=()=>{survey.questions.filter(q=>q.kind==='rating').forEach(q=>controls.get(q.entry).value=q.draft);updateSummary();};
+document.getElementById('openForm').onclick=()=>{
+    window.open(prefilledUrl(),'_blank','noopener,noreferrer');
+    document.getElementById('message').textContent='Opened the prefilled Google Form. Complete any missing information, review each page, and submit it manually.';
+};
+updateSummary();
+</script></body></html>
