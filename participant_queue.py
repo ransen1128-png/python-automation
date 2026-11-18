@@ -1,4 +1,4 @@
-"""Desktop queue: prepare one response, await manual submission, then advance."""
+"""Desktop queue: fill, navigate, submit once and advance after confirmation."""
 import argparse
 import hashlib
 import json
@@ -47,7 +47,8 @@ def read_state(path):
     if not path.exists():
         return {'version':1, 'form':FORM_URL, 'completed':{}}
     value = json.loads(path.read_text(encoding='utf-8'))
-    if value.get('version')!=1 or value.get('form')!=FORM_URL or not isinstance(value.get('completed'),dict):
+    if (value.get('version')!=1 or value.get('form')!=FORM_URL or not isinstance(value.get('completed'),dict)
+        or not isinstance(value.get('in_flight',{}),dict)):
         raise ValueError('Progress file is invalid or belongs to another survey. It was not reset.')
     return value
 
@@ -89,7 +90,8 @@ def confirmed_response(url, text, has_form, status, custom_text=None):
 
 class AutoNextNavigator:
     """Click only an exact Next button; permanently stop auto-navigation at Submit."""
-    def __init__(self):
+    def __init__(self,manual_submit=True):
+        self.manual_submit=manual_submit
         self.at_submit=False
         self.last_key=None
         self.stable_polls=0
@@ -103,18 +105,9 @@ class AutoNextNavigator:
             if button.is_visible():return button
         return None
 
-    def step(self,page,status):
-        if self.at_submit or status!=200:return
-        current,expected=urlparse(page.url),urlparse(FORM_URL)
-        if current.hostname!=expected.hostname or current.path not in (expected.path,expected.path.replace('/viewform','/formResponse')):return
-        if not page.locator('form[action*="formResponse"]').count():return
-        if self.visible_button(page,'Submit|Isumite') is not None:
-            self.at_submit=True
-            print('Reached Submit. Review the response and click Submit yourself. You can use Back to review earlier pages.',flush=True)
-            return
-        button=self.visible_button(page,'Next|Susunod')
-        if button is None or not button.is_enabled():return
-        snapshot=page.evaluate('''() => ({
+    @staticmethod
+    def snapshot(page):
+        return page.evaluate('''() => ({
             ready:document.readyState,
             url:location.href,
             history:document.querySelector('input[name="pageHistory"]')?.value || '',
@@ -122,6 +115,19 @@ class AutoNextNavigator:
             inputs:[...document.querySelectorAll('input:not([type="hidden"]),textarea,select')].map(e=>[e.type,e.value,e.checked]),
             choices:[...document.querySelectorAll('[role="radio"],[role="checkbox"]')].map(e=>[e.getAttribute('aria-label'),e.getAttribute('aria-checked')])
         })''')
+
+    def step(self,page,status):
+        if self.at_submit or status!=200:return
+        current,expected=urlparse(page.url),urlparse(FORM_URL)
+        if current.hostname!=expected.hostname or current.path not in (expected.path,expected.path.replace('/viewform','/formResponse')):return
+        if not page.locator('form[action*="formResponse"]').count():return
+        if self.visible_button(page,'Submit|Isumite') is not None:
+            self.at_submit=True
+            print('Reached Submit. Review the response and click Submit yourself. You can use Back to review earlier pages.' if self.manual_submit else 'Reached the final page. Preparing automatic submission.',flush=True)
+            return
+        button=self.visible_button(page,'Next|Susunod')
+        if button is None or not button.is_enabled():return
+        snapshot=self.snapshot(page)
         if snapshot['ready']!='complete':return
         key=hashlib.sha256(json.dumps(snapshot,sort_keys=True).encode()).hexdigest()
         if key!=self.last_key:
@@ -135,10 +141,47 @@ class AutoNextNavigator:
         button.click(timeout=4000)
 
 
-def watch_manual_submission(page, *, custom_text=None, status_getter, stopped=lambda: False, auto_next=True):
-    """Navigate Next pages if enabled, then observe final manual submission only."""
+class AutoSubmitter:
+    """Submit a final page once; never retry an uncertain submission automatically."""
+    def __init__(self,before_submit):
+        self.before_submit=before_submit
+        self.attempted=False
+        self.last_key=None
+        self.stable_polls=0
+
+    def step(self,page,status):
+        if self.attempted or status!=200:return
+        current,expected=urlparse(page.url),urlparse(FORM_URL)
+        if current.hostname!=expected.hostname or current.path not in (expected.path,expected.path.replace('/viewform','/formResponse')):return
+        if not page.locator('form[action*="formResponse"]').count():return
+        button=AutoNextNavigator.visible_button(page,'Submit|Isumite')
+        if button is None or not button.is_enabled() or AutoNextNavigator.visible_button(page,'Next|Susunod') is not None:return
+        # The respondent's optional suggestions are deliberately left blank.
+        comments=page.get_by_role('listitem').filter(has_text=re.compile(r'your recommendations|suggestions|iyong rekomendasyon',re.IGNORECASE)).locator('input:not([type="hidden"]),textarea')
+        for index in range(comments.count()):
+            field=comments.nth(index)
+            if field.is_visible() and field.input_value():field.fill('')
+        snapshot=AutoNextNavigator.snapshot(page)
+        if snapshot['ready']!='complete':return
+        key=hashlib.sha256(json.dumps(snapshot,sort_keys=True).encode()).hexdigest()
+        if key!=self.last_key:
+            self.last_key=key;self.stable_polls=0
+            return
+        self.stable_polls+=1
+        if self.stable_polls<2:return
+        # Persist intent before the click so a restart cannot duplicate a lost response.
+        self.before_submit()
+        self.attempted=True
+        print('Submitting once, with Suggestions blank. Waiting for Google confirmation...',flush=True)
+        button.click(timeout=4000)
+
+
+def watch_manual_submission(page, *, custom_text=None, status_getter, stopped=lambda: False, auto_next=True,
+                            auto_submit=False,before_submit=None):
+    """Navigate/submit as configured, and require Google's recorded-response message."""
     from playwright.sync_api import Error
-    navigator=AutoNextNavigator() if auto_next else None
+    navigator=AutoNextNavigator(manual_submit=not auto_submit) if auto_next else None
+    submitter=AutoSubmitter(before_submit or (lambda:None)) if auto_submit else None
     while not page.is_closed() and not stopped():
         try:
             if urlparse(page.url).path.endswith('/formResponse'):
@@ -147,7 +190,9 @@ def watch_manual_submission(page, *, custom_text=None, status_getter, stopped=la
                     text = page.locator('body').inner_text(timeout=2000)
                     if confirmed_response(page.url,text,has_form,status_getter(),custom_text):
                         return True
+            if status_getter() is not None and status_getter()>=400:return False
             if navigator:navigator.step(page,status_getter())
+            if submitter:submitter.step(page,status_getter())
             page.wait_for_timeout(350)
         except Error:
             if page.is_closed() or stopped():return False
@@ -156,7 +201,7 @@ def watch_manual_submission(page, *, custom_text=None, status_getter, stopped=la
     return False
 
 
-def process_participant(page, person, questions, state, state_path, custom_text=None, manual_next=False):
+def process_participant(page, person, questions, state, state_path, custom_text=None, manual_next=False,manual_submit=False):
     status = {'code':None}
     def navigated(response):
         try:
@@ -166,13 +211,21 @@ def process_participant(page, person, questions, state, state_path, custom_text=
             pass
     page.on('response',navigated)
     try:
+        key=participant_id(person)
+        def record_intent():
+            state.setdefault('in_flight',{})[key]={
+                'started_utc':datetime.now(timezone.utc).isoformat(),
+                'details_sha256':hashlib.sha256(json.dumps(person['answers'],sort_keys=True).encode()).hexdigest()}
+            save_state(state_path,state)
         response=page.goto(prefilled_url(questions,person),wait_until='domcontentloaded',timeout=60000)
         status['code']=response.status if response else None
-        if not watch_manual_submission(page,custom_text=custom_text,status_getter=lambda:status['code'],auto_next=not manual_next):
+        if not watch_manual_submission(page,custom_text=custom_text,status_getter=lambda:status['code'],auto_next=not manual_next,
+            auto_submit=not manual_submit,before_submit=record_intent):
             return False
         entry={'confirmed_utc':datetime.now(timezone.utc).isoformat(),
             'details_sha256':hashlib.sha256(json.dumps(person['answers'],sort_keys=True).encode()).hexdigest()}
-        state['completed'][participant_id(person)]=entry
+        state['completed'][key]=entry
+        state.get('in_flight',{}).pop(key,None)
         save_state(state_path,state)
         return True
     finally:
@@ -185,7 +238,7 @@ def make_queue(people,questions,state):
         key=participant_id(person)
         if key in seen:raise ValueError('Duplicate participant names found. Resolve them before starting the queue.')
         seen.add(key)
-        if key in state['completed']:continue
+        if key in state['completed'] or key in state.get('in_flight',{}):continue
         _,missing=person_answers(questions,person)
         if missing:incomplete.append((person,missing))
         else:pending.append(person)
@@ -196,8 +249,10 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--plan-only',action='store_true',help='Show counts without opening a browser or submitting anything.')
     parser.add_argument('--reset-progress',action='store_true',help='Start over explicitly; preserves a private backup of the previous progress file.')
-    parser.add_argument('--limit',type=int,help='Stop after this many manually confirmed responses in this run.')
+    parser.add_argument('--limit',type=int,help='Stop after this many Google-confirmed responses in this run.')
     parser.add_argument('--manual-next',action='store_true',help='Disable automatic Next clicks and review each page manually.')
+    parser.add_argument('--manual-submit',action='store_true',help='Keep the final Submit click manual.')
+    parser.add_argument('--retry-unconfirmed',action='store_true',help='Requeue unconfirmed attempts only after checking Google did not record them.')
     parser.add_argument('--confirmation-text',help='Exact custom Google confirmation text if the form owner changed the default.')
     args=parser.parse_args()
     if args.limit is not None and args.limit<1:parser.error('--limit must be positive')
@@ -205,6 +260,12 @@ def main():
     try:
         with QueueLock(ROOT/'.survey_queue.lock'):
             state=read_state(DEFAULT_STATE)
+            if args.retry_unconfirmed and not args.reset_progress and state.get('in_flight'):
+                if DEFAULT_STATE.exists():
+                    backup=ROOT/('.survey_queue_state.'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')+'.backup.json')
+                    backup.write_bytes(DEFAULT_STATE.read_bytes())
+                state['in_flight']={}
+                if not args.plan_only:save_state(DEFAULT_STATE,state)
             if args.reset_progress:
                 if DEFAULT_STATE.exists():
                     backup=ROOT/('.survey_queue_state.'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')+'.backup.json')
@@ -214,13 +275,15 @@ def main():
             schema=json.loads((ROOT/'form_schema.json').read_text(encoding='utf-8'))
             questions=questions_from_schema(schema);draft_ratings(questions)
             people=load_participants();pending,incomplete=make_queue(people,questions,state)
-            print(f'Participants: {len(people)} | Pending and ready: {len(pending)} | Completed: {len(state["completed"])} | Incomplete: {len(incomplete)}',flush=True)
+            print(f'Participants: {len(people)} | Pending and ready: {len(pending)} | Completed: {len(state["completed"])} | Incomplete: {len(incomplete)} | Unconfirmed: {len(state.get("in_flight",{}))}',flush=True)
+            if state.get('in_flight'):
+                print('Unconfirmed attempts are not repeated automatically. Check Google before using --retry-unconfirmed.',flush=True)
             if incomplete:
                 print('Incomplete participants are skipped until their actual missing details are added to participants.csv.',flush=True)
             if args.plan_only or not pending:return 0
-            print('Next pages advance automatically unless --manual-next is selected. The final Submit button is always manual.',flush=True)
-            print('Review the response before you submit. After Google confirms it, the next participant opens automatically.',flush=True)
-            print('Closing the browser stops the queue. Completed participants are remembered; unconfirmed responses remain pending.',flush=True)
+            print('Next and Submit run automatically. Suggestions stay blank. Use --manual-submit to review the final page manually.' if not args.manual_submit else 'Submit is manual. Click it after reviewing the response.',flush=True)
+            print('After Google confirms the response, progress is saved and the next participant opens automatically.',flush=True)
+            print('Closing the browser stops the queue. Completed participants are remembered; uncertain Submit attempts are held for review.',flush=True)
             from playwright.sync_api import sync_playwright,Error
             with sync_playwright() as playwright:
                 browser=None
@@ -236,8 +299,8 @@ def main():
                         if not browser.is_connected():break
                         context=browser.new_context(locale='en-US',viewport={'width':1200,'height':900})
                         page=context.new_page()
-                        print(f'[{number}/{min(len(pending),args.limit or len(pending))}] {person["name"]} - waiting for your review and manual submission.',flush=True)
-                        if not process_participant(page,person,questions,state,DEFAULT_STATE,args.confirmation_text,args.manual_next):
+                        print(f'[{number}/{min(len(pending),args.limit or len(pending))}] {person["name"]} - '+('waiting for manual Submit.' if args.manual_submit else 'automatic completion in progress.'),flush=True)
+                        if not process_participant(page,person,questions,state,DEFAULT_STATE,args.confirmation_text,args.manual_next,args.manual_submit):
                             print('Stopped. The current participant was not marked completed.',flush=True)
                             break
                         print('Google confirmed the response. Progress saved.',flush=True)

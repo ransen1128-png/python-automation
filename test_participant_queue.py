@@ -73,6 +73,26 @@ class ParticipantQueueTests(unittest.TestCase):
             process_participant(page,example_person(),self.questions,self.state,Path(directory)/'state.json',manual_next=True)
             self.assertFalse(watcher.call_args.kwargs['auto_next'])
 
+    def test_manual_submit_option_disables_automatic_submit(self):
+        page=MagicMock();page.goto.return_value.status=200
+        with tempfile.TemporaryDirectory() as directory,patch('participant_queue.watch_manual_submission',return_value=False) as watcher:
+            process_participant(page,example_person(),self.questions,self.state,Path(directory)/'state.json',manual_submit=True)
+            self.assertFalse(watcher.call_args.kwargs['auto_submit'])
+
+    def test_interrupted_submission_preserves_intent_for_review(self):
+        page=MagicMock();page.goto.return_value.status=200
+        def interrupted(*args,**kwargs):
+            self.assertTrue(kwargs['auto_submit'])
+            kwargs['before_submit']()
+            return False
+        with tempfile.TemporaryDirectory() as directory,patch('participant_queue.watch_manual_submission',side_effect=interrupted):
+            path=Path(directory)/'state.json';person=example_person()
+            self.assertFalse(process_participant(page,person,self.questions,self.state,path))
+            saved=read_state(path)
+            self.assertEqual(saved['completed'],{})
+            self.assertIn(participant_id(person),saved['in_flight'])
+            self.assertEqual(make_queue([person],self.questions,saved)[0],[])
+
     def test_success_saves_once_and_resume_skips_person(self):
         page=MagicMock();page.goto.return_value.status=200
         with tempfile.TemporaryDirectory() as directory,patch('participant_queue.watch_manual_submission',return_value=True):

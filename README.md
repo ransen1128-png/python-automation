@@ -30,12 +30,15 @@ Deployment reference: [Render's Flask guide](https://render.com/docs/deploy-flas
 
 Double-click **Start Survey.cmd**. It installs the desktop Playwright dependency
 on its first run, then opens Chrome (or Edge) with the first ready, pending
-participant. It clicks **Next** through the prefilled pages and stops at the
-final **Submit** button. Review the answers and click **Submit yourself**.
-After Google's confirmation message appears, the queue saves progress and opens
-the next participant automatically. It never clicks Submit. Once the final page
-is reached, Back remains available for reviewing earlier pages without being
-automatically moved forward again. Suggested ratings still require review.
+participant. It clicks **Next** through the prefilled pages, leaves optional
+Suggestions blank, and clicks **Submit once**. After Google's confirmation
+message appears, the queue saves progress and opens the next participant
+automatically, until all ready participants are complete. Use this mode only
+with the actual responses supplied by participants. The current ratings were
+confirmed by the user as their actual answers.
+
+Use `--manual-submit` to stop at the final page for review instead. In that mode,
+Back remains available without automatically moving forward again.
 
 If Next cannot advance because of a validation error, the helper does not keep
 clicking an unchanged page. Correct the missing/invalid answers; it can then
@@ -48,7 +51,10 @@ Google access restrictions still apply. Sign in manually if Google asks.
 
 Close the browser or press Ctrl+C to stop. Launch Start Survey again to resume;
 confirmed participants are skipped. Closing a form before confirmation does not
-mark it done. Local `.survey_queue_state.json` and its lock/backup files are kept
+mark it done. If Submit was clicked but confirmation was lost, that participant
+is held as **Unconfirmed** to prevent a duplicate response after restarting.
+Check Google's responses before using `--retry-unconfirmed` to retry those entries.
+Local `.survey_queue_state.json` and its lock/backup files are kept
 out of GitHub. Changes to an already-completed person's details do not silently
 cause another submission. Use an explicit reset only if a repeat is intended.
 
@@ -56,6 +62,8 @@ cause another submission. Use an explicit reset only if a repeat is intended.
 & '.\Start Survey.cmd' --plan-only
 & '.\Start Survey.cmd' --limit 5
 & '.\Start Survey.cmd' --manual-next
+& '.\Start Survey.cmd' --manual-submit
+& '.\Start Survey.cmd' --retry-unconfirmed
 & '.\Start Survey.cmd' --reset-progress
 ```
 
@@ -100,7 +108,8 @@ Review every statement and change any selection that does not match your own
 experience. Personal and farm information is left blank rather than invented.
 Click **Open filled Google Form for review**. Google opens a prefilled copy:
 complete the required information, review the six pages, and submit it yourself.
-The helper never clicks Submit, submits multiple responses, or invents respondents.
+The preview does not click Submit. The separate desktop queue described above
+can submit supplied responses automatically.
 
 You can also open `survey_preview.html` directly without running Python.
 Personal information typed into this local preview is not saved by the helper;

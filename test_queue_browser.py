@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from urllib.parse import urlparse
-from participant_queue import FORM_URL,process_participant,make_queue,read_state,watch_manual_submission,AutoNextNavigator
+from participant_queue import FORM_URL,process_participant,make_queue,read_state,watch_manual_submission,AutoNextNavigator,AutoSubmitter,participant_id
 from survey_automation import ROOT,questions_from_schema,draft_ratings
 from test_participant_queue import example_person
 
@@ -63,6 +63,59 @@ class OfflineQueueBrowserTests(unittest.TestCase):
             checks['count']+=1
             return checks['count']>3
         self.assertFalse(watch_manual_submission(self.page,status_getter=lambda:500,stopped=stopped))
+
+    def test_automatic_queue_submits_once_leaves_suggestions_blank_and_resumes(self):
+        submissions=[]
+        fixture='''<html><body><script>
+        window.showStage=n=>{
+          document.body.innerHTML='<form action="formResponse"><h1 role="heading">Section '+n+'</h1>'+
+          (n<5?'<button type="button" onclick="showStage('+(n+1)+')">Next</button>':
+          '<div role="listitem">Your recommendations:<textarea>Old draft suggestion</textarea></div><button type="button" onclick="sendResponse()">Submit</button>')+'</form>';
+        };
+        window.sendResponse=()=>location.href=location.pathname.replace('/viewform','/formResponse')+'?suggestion='+encodeURIComponent(document.querySelector('textarea').value);
+        showStage(0);
+        </script></body></html>'''
+        def route(request):
+            if urlparse(request.request.url).path.endswith('/viewform'):
+                request.fulfill(content_type='text/html',body=fixture)
+            else:
+                # The intent must already be on disk before the Submit click.
+                self.assertEqual(len(read_state(path).get('in_flight',{})),1)
+                submissions.append(request.request.url)
+                request.fulfill(content_type='text/html',body='Your response has been recorded.')
+        self.context.route('**/*',route)
+        people=[example_person('Automatic','Alpha'),example_person('Automatic','Beta')]
+        state={'version':1,'form':FORM_URL,'completed':{}}
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'state.json'
+            for count,person in enumerate(people,1):
+                self.assertTrue(process_participant(self.page,person,self.questions,state,path))
+                saved=read_state(path)
+                self.assertEqual(len(saved['completed']),count)
+                self.assertEqual(saved['in_flight'],{})
+                self.assertEqual(len(make_queue(people,self.questions,saved)[0]),len(people)-count)
+        self.assertEqual(len(submissions),2)
+        self.assertTrue(all(url.endswith('?suggestion=') for url in submissions))
+
+    def test_uncertain_submit_is_not_repeated_or_marked_completed(self):
+        fixture='''<form action="formResponse"><div role="listitem">Your recommendations:<textarea></textarea></div>
+        <button type="button" onclick="window.clicks=(window.clicks||0)+1">Submit</button></form>'''
+        self.context.route('**/*',lambda route:route.fulfill(content_type='text/html',body=fixture))
+        self.page.goto(FORM_URL)
+        state={'version':1,'form':FORM_URL,'completed':{}}
+        person=example_person()
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'state.json'
+            def intent():
+                state['in_flight']={participant_id(person):{'started_utc':'fixture'}}
+                from participant_queue import save_state
+                save_state(path,state)
+            submitter=AutoSubmitter(intent)
+            for _ in range(15):submitter.step(self.page,200)
+            self.assertEqual(self.page.evaluate('window.clicks'),1)
+            saved=read_state(path)
+            self.assertEqual(saved['completed'],{})
+            self.assertEqual(make_queue([person],self.questions,saved)[0],[])
 
     def test_auto_next_reaches_final_page_and_never_clicks_submit(self):
         fixture='''<html><body><script>
