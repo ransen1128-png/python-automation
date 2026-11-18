@@ -7,3 +7,4 @@ participants.csv
 participants.*.csv
 .venv/
 *.log
+.survey_queue*
