@@ -48,6 +48,11 @@ class SurveyDraftTests(unittest.TestCase):
         for age in ('-1','121','25.5','unknown'):
             with self.assertRaises(ValueError):participant_from_row({**row,'age':age})
 
+    def test_poultry_types_fill_checkbox_answers(self):
+        row={'first_name':'Test','last_name':'Participant','poultry_types':'Layers;Broiler'}
+        self.assertEqual(participant_from_row(row)['answers']['What type of poultry farming do you operate?'],['Layers','Broiler'])
+        self.assertEqual(participant_from_row({**row,'poultry_types':''})['answers']['What type of poultry farming do you operate?'],[])
+
     def test_participant_list_and_supplied_farm_details(self):
         import csv
         import tempfile

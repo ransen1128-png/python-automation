@@ -78,6 +78,7 @@ PARTICIPANT_CONFIG = {
     'experience_choices': {'less than a year': 'less than a year', '1 year': '1 year', '2 years': '2-4 years', '3 years': '2-4 years', '4 years': '2-4 years', '2-4 years': '2-4 years', '5 years or more': '5 years or more'},
     'labels': {'first_name': 'FIRST NAME', 'last_name': 'LAST NAME', 'age': 'AGE',
         'line_of_work': 'Choose the option that describes your line of work.',
+        'poultry_types': 'What type of poultry farming do you operate?',
         'chicken_count': 'How many chickens do you currently have?',
         'farm_count': 'Number of poultry farm owned',
         'recordkeeping_experience': 'How many years of experience does the person responsible for recordkeeping have?',
@@ -93,7 +94,8 @@ def participant_from_row(row):
     if values['age'] and (not re.fullmatch(r'[0-9]{1,3}', values['age']) or not 1 <= int(values['age']) <= 120):
         raise ValueError('Supplied ages must be whole years from 1 to 120, or blank if not provided.')
     values['name'] = values['first_name'] + ' ' + values['last_name']
-    values['recordkeeping_methods'] = [value.strip() for value in values['recordkeeping_methods'].split(';') if value.strip()]
+    for field in ('recordkeeping_methods', 'poultry_types'):
+        values[field] = [value.strip() for value in values[field].split(';') if value.strip()]
     answers = {label: values[field] for field, label in PARTICIPANT_CONFIG['labels'].items()}
     for field, mapping in (('chicken_count', 'chicken_choices'), ('farm_count', 'farm_choices'), ('recordkeeping_experience', 'experience_choices')):
         answers[PARTICIPANT_CONFIG['labels'][field]] = PARTICIPANT_CONFIG[mapping].get(values[field], '')

@@ -39,6 +39,9 @@ proposed drafts until reviewed; they are not collected participant responses.
 An optional `age` column now fills the Google Form's Age field using only the
 supplied age in whole years. Blank ages stay blank; switching people clears the
 previous person's age.
+The optional `poultry_types` column fills the poultry-type checkboxes. Use the
+exact listed choices, separated by semicolons for multiple types, e.g. `Layers`
+or `Layers;Broiler`. Missing types stay blank.
 Re-run Start Survey after editing the CSV to refresh the participant list.
 The form groups 2 or 3 farms as **2-5**, and the supplied **200+** category maps to
 its **201 or more** choice. Exact supplied counts are shown beside the selector.

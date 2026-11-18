@@ -65,7 +65,7 @@ function participantFromCsvRow(row){
     if(!person.first_name || !person.last_name)throw new Error('Every participant needs a first and last name.');
     if(person.age && (!/^[0-9]{1,3}$/.test(person.age) || Number(person.age)<1 || Number(person.age)>120))throw new Error('Supplied ages must be whole years from 1 to 120, or blank if not provided.');
     person.name=person.first_name+' '+person.last_name;
-    person.recordkeeping_methods=person.recordkeeping_methods.split(';').map(value=>value.trim()).filter(Boolean);
+    for(const field of ['recordkeeping_methods','poultry_types'])person[field]=person[field].split(';').map(value=>value.trim()).filter(Boolean);
     person.answers=Object.fromEntries(Object.entries(config.labels).map(([field,label])=>[label,person[field]]));
     for(const [field,mapping] of [['chicken_count','chicken_choices'],['farm_count','farm_choices'],['recordkeeping_experience','experience_choices']])person.answers[config.labels[field]]=config[mapping][person[field]] || '';
     return person;
@@ -95,7 +95,7 @@ participantSelect.addEventListener('change',()=>{
         if(matched && matched[1] && (!question.options.length || question.options.includes(matched[1])))control.value=matched[1];
     }
     document.getElementById('participantDetails').textContent=person?
-        person.name+' · '+(person.age?person.age+' years old':'Age not provided')+' · '+(person.line_of_work || 'Role not provided')+' · '+(person.chicken_count?person.chicken_count+' chickens':'Chicken count not provided')+' · '+(person.farm_count?person.farm_count+' farms':'Farm count not provided')+' · '+(person.recordkeeping_experience || 'Experience not provided')+' · '+(person.recordkeeping_methods?.join(' + ') || 'Methods not provided')+' · '+(person.review_frequency?person.review_frequency+' review':'Review frequency not provided')+'. Missing details remain blank. Ratings below are suggested drafts, not recorded participant responses.':
+        person.name+' · '+(person.age?person.age+' years old':'Age not provided')+' · '+(person.line_of_work || 'Role not provided')+' · '+(person.poultry_types?.join(' + ') || 'Poultry type not provided')+' · '+(person.chicken_count?person.chicken_count+' chickens':'Chicken count not provided')+' · '+(person.farm_count?person.farm_count+' farms':'Farm count not provided')+' · '+(person.recordkeeping_experience || 'Experience not provided')+' · '+(person.recordkeeping_methods?.join(' + ') || 'Methods not provided')+' · '+(person.review_frequency?person.review_frequency+' review':'Review frequency not provided')+'. Missing details remain blank. Ratings below are suggested drafts, not recorded participant responses.':
         'Selecting a name fills only the details supplied in participants.csv. Information not supplied stays blank.';
     updateSummary();
 });
