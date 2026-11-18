@@ -76,7 +76,7 @@ PARTICIPANT_CONFIG = {
     'chicken_choices': {'150 - 200': '150 - 200', '200+': '201 or more', '201 or more': '201 or more', '50 - 100': '50 - 100'},
     'farm_choices': {'1': '1', '2': '2-5', '3': '2-5', '4': '2-5', '5': '2-5', '2-5': '2-5', 'More': 'More'},
     'experience_choices': {'less than a year': 'less than a year', '1 year': '1 year', '2 years': '2-4 years', '3 years': '2-4 years', '4 years': '2-4 years', '2-4 years': '2-4 years', '5 years or more': '5 years or more'},
-    'labels': {'first_name': 'FIRST NAME', 'last_name': 'LAST NAME',
+    'labels': {'first_name': 'FIRST NAME', 'last_name': 'LAST NAME', 'age': 'AGE',
         'line_of_work': 'Choose the option that describes your line of work.',
         'chicken_count': 'How many chickens do you currently have?',
         'farm_count': 'Number of poultry farm owned',
@@ -90,6 +90,8 @@ def participant_from_row(row):
     values = {field: str(row.get(field) or '').strip() for field in PARTICIPANT_CONFIG['labels']}
     if not values['first_name'] or not values['last_name']:
         raise ValueError('Every participant must have a first and last name.')
+    if values['age'] and (not re.fullmatch(r'[0-9]{1,3}', values['age']) or not 1 <= int(values['age']) <= 120):
+        raise ValueError('Supplied ages must be whole years from 1 to 120, or blank if not provided.')
     values['name'] = values['first_name'] + ' ' + values['last_name']
     values['recordkeeping_methods'] = [value.strip() for value in values['recordkeeping_methods'].split(';') if value.strip()]
     answers = {label: values[field] for field, label in PARTICIPANT_CONFIG['labels'].items()}

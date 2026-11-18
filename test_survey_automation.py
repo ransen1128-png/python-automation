@@ -1,7 +1,7 @@
 import json
 import unittest
 from copy import deepcopy
-from survey_automation import ROOT, RATINGS, questions_from_schema, draft_ratings, load_participants
+from survey_automation import ROOT, RATINGS, questions_from_schema, draft_ratings, load_participants, participant_from_row
 
 
 class SurveyDraftTests(unittest.TestCase):
@@ -40,6 +40,13 @@ class SurveyDraftTests(unittest.TestCase):
         for weights in ((0, 0, 0), (1, -1, 2)):
             with self.assertRaises(ValueError):
                 draft_ratings(self.questions, weights=weights)
+
+    def test_only_supplied_age_is_used(self):
+        row={'first_name':'Test','last_name':'Participant','age':'23'}
+        self.assertEqual(participant_from_row(row)['answers']['AGE'],'23')
+        self.assertEqual(participant_from_row({**row,'age':''})['answers']['AGE'],'')
+        for age in ('-1','121','25.5','unknown'):
+            with self.assertRaises(ValueError):participant_from_row({**row,'age':age})
 
     def test_participant_list_and_supplied_farm_details(self):
         import csv
