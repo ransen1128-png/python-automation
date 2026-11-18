@@ -5,3 +5,5 @@ survey_preview.html
 test_preview.html
 participants.csv
 participants.*.csv
+.venv/
+*.log

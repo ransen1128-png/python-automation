@@ -1,5 +1,33 @@
 # SmartPoultry survey draft helper
 
+## Render web deployment
+
+The repository now includes a web entry point (`app.py`), `requirements.txt`,
+`.python-version` and `render.yaml`. For your existing Render **Web Service**:
+
+- Root Directory: leave blank (the files are in the repository root).
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 60`
+- Health Check Path: `/health`
+
+Save the settings and deploy the latest commit. The desktop `.cmd` launcher
+is not a web server and must not be used as Render's start command.
+
+On the hosted page, click **Load your participants.csv** and choose the existing
+CSV from your computer, then select a participant. The file is parsed only in
+your browser. Participant files are not committed, uploaded, stored on Render,
+or embedded in the public HTML. Reloading the hosted page clears its imported
+list; choose the CSV again. Google receives the selected person's prefilled
+answers only when you click **Open filled Google Form for review**.
+
+For local web testing, install `requirements.txt`, then run `python app.py` and
+open `http://127.0.0.1:10000`. Gunicorn runs on Render's Linux environment.
+The website is a draft helper; no response is submitted automatically.
+
+Deployment reference: [Render's Flask guide](https://render.com/docs/deploy-flask).
+
+## Desktop use
+
 Double-click **Start Survey.cmd**. It prepares and opens `survey_preview.html`.
 No pip installation or additional Python packages are needed.
 

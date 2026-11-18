@@ -42,24 +42,33 @@ class SurveyDraftTests(unittest.TestCase):
                 draft_ratings(self.questions, weights=weights)
 
     def test_participant_list_and_supplied_farm_details(self):
-        people=load_participants()
-        self.assertEqual(len(people),93)
-        by_name={person['name']:person for person in people}
-        first=by_name['Rafael Miguel Perez']
+        import csv
+        import tempfile
+        from pathlib import Path
+        fields=['first_name','last_name','line_of_work','chicken_count','farm_count','recordkeeping_experience','recordkeeping_methods','review_frequency']
+        rows=[dict(zip(fields,['Test Owner','One','Poultry Farm Owner','150 - 200','2','1 year','Handwritten notebook;Excel/spreadsheets','Daily'])),
+              dict(zip(fields,['Test Owner','Two','Poultry Farm Owner','200+','3','2 years','Handwritten notebook;Excel/spreadsheets','Daily'])),
+              dict(zip(fields,['Test Name','Only','','','','','','']))]
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'participants.csv'
+            with path.open('w',encoding='utf-8',newline='') as handle:
+                writer=csv.DictWriter(handle,fieldnames=fields);writer.writeheader();writer.writerows(rows)
+            people=load_participants(path)
+        self.assertEqual(len(people),3)
+        first,second,unknown=people
         self.assertEqual(first['answers']['Choose the option that describes your line of work.'],'Poultry Farm Owner')
         self.assertEqual(first['answers']['How many chickens do you currently have?'],'150 - 200')
         self.assertEqual(first['answers']['Number of poultry farm owned'],'2-5')
         self.assertEqual(first['recordkeeping_experience'],'1 year')
         self.assertEqual(first['recordkeeping_methods'],['Handwritten notebook','Excel/spreadsheets'])
         self.assertEqual(first['review_frequency'],'Daily')
-        second=by_name['Mary Ann Cordero']
         self.assertEqual(second['answers']['How many chickens do you currently have?'],'201 or more')
         self.assertEqual(second['farm_count'],'3')
         self.assertEqual(second['recordkeeping_experience'],'2 years')
         self.assertEqual(second['answers']['How many years of experience does the person responsible for recordkeeping have?'],'2-4 years')
         self.assertEqual(second['recordkeeping_methods'],['Handwritten notebook','Excel/spreadsheets'])
         self.assertEqual(second['review_frequency'],'Daily')
-        self.assertEqual(by_name['Jericho Mark Dela Peña']['answers']['Choose the option that describes your line of work.'],'')
+        self.assertEqual(unknown['answers']['Choose the option that describes your line of work.'],'')
 
 
 if __name__ == '__main__':

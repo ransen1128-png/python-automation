@@ -72,49 +72,51 @@ def draft_ratings(questions, seed=2026, weights=(55, 35, 10)):
     return dict(zip(RATINGS, counts))
 
 
+PARTICIPANT_CONFIG = {
+    'chicken_choices': {'150 - 200': '150 - 200', '200+': '201 or more', '201 or more': '201 or more', '50 - 100': '50 - 100'},
+    'farm_choices': {'1': '1', '2': '2-5', '3': '2-5', '4': '2-5', '5': '2-5', '2-5': '2-5', 'More': 'More'},
+    'experience_choices': {'less than a year': 'less than a year', '1 year': '1 year', '2 years': '2-4 years', '3 years': '2-4 years', '4 years': '2-4 years', '2-4 years': '2-4 years', '5 years or more': '5 years or more'},
+    'labels': {'first_name': 'FIRST NAME', 'last_name': 'LAST NAME',
+        'line_of_work': 'Choose the option that describes your line of work.',
+        'chicken_count': 'How many chickens do you currently have?',
+        'farm_count': 'Number of poultry farm owned',
+        'recordkeeping_experience': 'How many years of experience does the person responsible for recordkeeping have?',
+        'recordkeeping_methods': 'What method do you primarily use to maintain farm records?',
+        'review_frequency': 'How often are your financial records reviewed or checked?'}
+}
+
+
+def participant_from_row(row):
+    values = {field: str(row.get(field) or '').strip() for field in PARTICIPANT_CONFIG['labels']}
+    if not values['first_name'] or not values['last_name']:
+        raise ValueError('Every participant must have a first and last name.')
+    values['name'] = values['first_name'] + ' ' + values['last_name']
+    values['recordkeeping_methods'] = [value.strip() for value in values['recordkeeping_methods'].split(';') if value.strip()]
+    answers = {label: values[field] for field, label in PARTICIPANT_CONFIG['labels'].items()}
+    for field, mapping in (('chicken_count', 'chicken_choices'), ('farm_count', 'farm_choices'), ('recordkeeping_experience', 'experience_choices')):
+        answers[PARTICIPANT_CONFIG['labels'][field]] = PARTICIPANT_CONFIG[mapping].get(values[field], '')
+    return {**values, 'answers': answers}
+
+
 def load_participants(path=None):
     path = Path(path) if path else ROOT / 'participants.csv'
     if not path.exists():
         return []
     with path.open(encoding='utf-8-sig', newline='') as handle:
-        rows = list(csv.DictReader(handle))
-    participants = []
-    for row in rows:
-        first = row.get('first_name', '').strip()
-        last = row.get('last_name', '').strip()
-        if not first or not last:
-            raise ValueError('Every participant must have a first and last name.')
-        role = row.get('line_of_work', '').strip()
-        chickens = row.get('chicken_count', '').strip()
-        farms = row.get('farm_count', '').strip()
-        experience = row.get('recordkeeping_experience', '').strip()
-        experience_choice = {'less than a year': 'less than a year', '1 year': '1 year',
-            '2 years': '2-4 years', '3 years': '2-4 years', '4 years': '2-4 years',
-            '2-4 years': '2-4 years', '5 years or more': '5 years or more'}.get(experience, '')
-        methods = [value.strip() for value in row.get('recordkeeping_methods', '').split(';') if value.strip()]
-        review_frequency = row.get('review_frequency', '').strip()
-        chicken_choice = {'150 - 200': '150 - 200', '200+': '201 or more', '201 or more': '201 or more', '50 - 100': '50 - 100'}.get(chickens, '')
-        farm_choice = {'1': '1', '2': '2-5', '3': '2-5', '4': '2-5', '5': '2-5', '2-5': '2-5', 'More': 'More'}.get(farms, '')
-        participants.append({'name': first + ' ' + last, 'first_name': first, 'last_name': last,
-            'line_of_work': role, 'chicken_count': chickens, 'farm_count': farms,
-            'recordkeeping_experience': experience, 'recordkeeping_methods': methods,
-            'review_frequency': review_frequency,
-            'answers': {'FIRST NAME': first, 'LAST NAME': last,
-                'Choose the option that describes your line of work.': role,
-                'How many chickens do you currently have?': chicken_choice,
-                'Number of poultry farm owned': farm_choice,
-                'How many years of experience does the person responsible for recordkeeping have?': experience_choice,
-                'What method do you primarily use to maintain farm records?': methods,
-                'How often are your financial records reviewed or checked?': review_frequency}})
-    return participants
+        return [participant_from_row(row) for row in csv.DictReader(handle)]
+
+
+def render_preview(schema, questions, participants):
+    data = json.dumps({'url': FORM_URL, 'questions': questions, 'participants': participants,
+        'participant_config': PARTICIPANT_CONFIG}, ensure_ascii=True).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+    title = html.escape(str(schema['title']))
+    template = (ROOT / 'survey_template.html').read_text(encoding='utf-8')
+    return template.replace('__TITLE__', title).replace('__DATA__', data)
 
 
 def create_preview(schema, questions, counts):
     participants = load_participants()
-    data = json.dumps({'url': FORM_URL, 'questions': questions, 'participants': participants}, ensure_ascii=True).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
-    title = html.escape(str(schema['title']))
-    template = (ROOT / 'survey_template.html').read_text(encoding='utf-8')
-    preview = template.replace('__TITLE__', title).replace('__DATA__', data)
+    preview = render_preview(schema, questions, participants)
     path = ROOT / 'survey_preview.html'
     path.write_text(preview, encoding='utf-8')
     plan = {'status': 'editable draft; not submitted', 'form': FORM_URL,
